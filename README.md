@@ -8,6 +8,10 @@
 
 An MCP (Model Context Protocol) server that connects AI assistants to OpenTelemetry trace backends (Jaeger, Tempo, Traceloop), with specialized support for LLM observability through OpenLLMetry semantic conventions.
 
+**See it in action:**
+
+https://github.com/user-attachments/assets/e2106ef9-0a58-4ba0-8b2b-e114c0b8b4b9
+
 ---
 
 ## Table of Contents
