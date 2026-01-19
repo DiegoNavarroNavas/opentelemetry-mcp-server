@@ -35,14 +35,14 @@ classifiers = [
     "Framework :: FastAPI",
 ]
 dependencies = [
-    "mcp~=1.20.0",
-    "fastmcp~=2.13.0",
+    "mcp~=1.25.0",
+    "fastmcp~=2.14.0",
     "pydantic~=2.12.0",
     "httpx~=0.28.0",
     "python-dotenv~=1.2.0",
     "click~=8.3.0",
-    "uvicorn~=0.38.0",
-    "starlette~=0.50.0",
+    "uvicorn~=0.40.0",
+    "starlette~=0.52.0",
     "opentelemetry-semantic-conventions-ai>=0.4.0",
     "opentelemetry-semantic-conventions>=0.48b0",
 ]
@@ -65,11 +65,11 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pytest~=8.4.0",
-    "pytest-asyncio~=1.2.0",
+    "pytest~=9.0.0",
+    "pytest-asyncio~=1.3.0",
     "pytest-cov~=7.0.0",
     "pytest-recording~=0.13.0",
-    "mypy~=1.18.0",
+    "mypy~=1.19.0",
     "ruff~=0.14.0",
     "types-click~=7.1.8",
 ]
