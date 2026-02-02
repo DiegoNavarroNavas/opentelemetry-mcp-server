@@ -382,20 +382,11 @@ class LangfuseBackend(BaseBackend):
             status = self._determine_trace_status(trace_item, spans)
 
             # Create TraceData
-            # Handle different attribute names in Langfuse SDK versions
-            latency_ms = 0
-            if hasattr(trace_item, 'latency_ms'):
-                latency_ms = trace_item.latency_ms or 0
-            elif hasattr(trace_item, 'latency'):
-                latency_ms = (trace_item.latency or 0) * 1000 if trace_item.latency else 0
-            elif hasattr(trace_item, 'duration'):
-                latency_ms = (trace_item.duration or 0) * 1000 if trace_item.duration else 0
-
             return TraceData(
                 trace_id=trace_item.id,
                 spans=spans,
                 start_time=self._parse_timestamp(trace_item.timestamp),
-                duration_ms=float(latency_ms),
+                duration_ms=self._get_latency_ms(trace_item),
                 service_name=trace_item.name or "unknown",
                 root_operation=trace_item.session_id or trace_item.name or "unknown",
                 status=status,
@@ -404,6 +395,25 @@ class LangfuseBackend(BaseBackend):
         except Exception as e:
             logger.error(f"Error converting Langfuse trace to TraceData: {e}")
             return None
+
+    def _get_latency_ms(self, obj: Any) -> float:
+        """Get latency in milliseconds from an object with different attribute names.
+
+        Args:
+            obj: Object that might have latency_ms, latency, or duration attributes
+
+        Returns:
+            Latency in milliseconds
+        """
+        if hasattr(obj, 'latency_ms'):
+            return float(obj.latency_ms or 0)
+        elif hasattr(obj, 'latency'):
+            # Latency is in seconds, convert to ms
+            return float((obj.latency or 0) * 1000)
+        elif hasattr(obj, 'duration'):
+            # Duration is in seconds, convert to ms
+            return float((obj.duration or 0) * 1000)
+        return 0.0
 
     def _create_span_from_trace_metadata(self, trace_item: Any) -> SpanData:
         """Create a SpanData from trace metadata when observations aren't available.
@@ -442,8 +452,8 @@ class LangfuseBackend(BaseBackend):
             operation_name=trace_item.name or "unknown",
             service_name=trace_item.name or "unknown",
             start_time=self._parse_timestamp(trace_item.timestamp),
-            duration_ms=float(trace_item.latency_ms or 0),
-            status=self._langfuse_level_to_status(trace_item.level),
+            duration_ms=self._get_latency_ms(trace_item),
+            status=self._langfuse_level_to_status(getattr(trace_item, 'level', None)),
             attributes=span_attributes,
         )
 
@@ -496,7 +506,7 @@ class LangfuseBackend(BaseBackend):
                 operation_name=obs.name,
                 service_name=raw_attrs.get(Service.NAME, ""),
                 start_time=self._parse_timestamp(obs.start_time),
-                duration_ms=float(obs.latency_ms or 0),
+                duration_ms=self._get_latency_ms(obs),
                 status=self._langfuse_level_to_status(obs.level),
                 attributes=span_attributes,
             )
@@ -515,34 +525,47 @@ class LangfuseBackend(BaseBackend):
         Returns:
             Status: "OK", "ERROR", or "UNSET"
         """
-        # Check trace level
-        if trace_item.level == "ERROR":
+        # Check trace level (if it exists)
+        level = getattr(trace_item, 'level', None)
+
+        if level == "ERROR":
             return "ERROR"
-        elif trace_item.level == "WARNING":
+        elif level == "WARNING":
             # Check if any spans have errors
             if any(span.status == "ERROR" for span in spans):
                 return "ERROR"
             return "OK"
-        elif trace_item.level == "DEFAULT":
+        elif level == "DEFAULT":
             # Check spans for errors
             if any(span.status == "ERROR" for span in spans):
                 return "ERROR"
             return "OK"
         else:
+            # No level attribute, check spans for errors
+            if any(span.status == "ERROR" for span in spans):
+                return "ERROR"
+            elif any(span.status == "OK" for span in spans):
+                return "OK"
             return "UNSET"
 
     def _langfuse_level_to_status(self, level: str | None) -> str:
         """Convert Langfuse log level to OpenTelemetry status.
 
         Args:
-            level: Langfuse log level (DEFAULT, WARNING, ERROR)
+            level: Langfuse log level (DEFAULT, WARNING, ERROR) or ObservationLevel enum
 
         Returns:
             OpenTelemetry status: OK, ERROR, or UNSET
         """
-        if level == "ERROR":
+        # Handle enum values by converting to string
+        if level is not None:
+            level_str = str(level).split('.')[-1]  # Handle both "ERROR" and ObservationLevel.ERROR
+        else:
+            level_str = None
+
+        if level_str == "ERROR":
             return "ERROR"
-        elif level in ("DEFAULT", "WARNING"):
+        elif level_str in ("DEFAULT", "WARNING"):
             return "OK"
         else:
             return "UNSET"
