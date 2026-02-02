@@ -51,9 +51,12 @@ async def test_langfuse_backend():
     try:
         health = await backend.health_check()
         print(f"   Status: {health.status}")
-        print(f"   Message: {health.message}")
-        if health.status != "ok":
-            print("⚠️  Warning: Backend health check did not return 'ok'")
+        print(f"   Backend: {health.backend}")
+        print(f"   URL: {health.url}")
+        if health.error:
+            print(f"   Error: {health.error}")
+        if health.status != "healthy":
+            print("⚠️  Warning: Backend health check did not return 'healthy'")
     except Exception as e:
         print(f"❌ Health check failed: {e}")
         return False

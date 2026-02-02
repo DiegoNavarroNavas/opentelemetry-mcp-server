@@ -49,23 +49,35 @@ class LangfuseBackend(BaseBackend):
             secret_key: Langfuse secret key (sk-lf-...)
             timeout: Request timeout in seconds
         """
-        # Use api_key parameter for public_key (Langfuse SDK convention)
-        # Store both for reference
+        # Store credentials
         self.public_key = public_key
         self.secret_key = secret_key
-
-        # Initialize BaseBackend with url and api_key (we'll use secret_key as api_key)
-        super().__init__(url, secret_key, timeout)
+        self.timeout = timeout
 
         if not self.public_key or not self.secret_key:
             raise ValueError("Langfuse backend requires both public_key and secret_key")
 
-        # Initialize Langfuse client
-        self.client = Langfuse(
+        # Initialize BaseBackend without calling super().__init__()
+        # to avoid conflicts with Langfuse's client management
+        self.url = url.rstrip("/")
+        self.api_key = secret_key  # For compatibility with BaseBackend interface
+        self._langfuse_client = None  # Will be lazy-loaded
+
+        # Initialize Langfuse client separately
+        self._langfuse_client = Langfuse(
             public_key=self.public_key,
             secret_key=self.secret_key,
             host=self.url,
         )
+
+    @property
+    def langfuse_client(self) -> Langfuse:
+        """Get the Langfuse client instance.
+
+        Returns:
+            Langfuse SDK client
+        """
+        return self._langfuse_client
 
     def _create_headers(self) -> dict[str, str]:
         """Create headers for Langfuse API requests.
@@ -120,20 +132,18 @@ class LangfuseBackend(BaseBackend):
         if query.operation_name:
             params["session_id"] = query.operation_name
 
-        # Time range filtering
+        # Time range filtering - Langfuse expects datetime objects, not strings
         if query.start_time:
-            params["from_timestamp"] = self._format_timestamp(query.start_time)
+            params["from_timestamp"] = query.start_time
         else:
             # Default to last 24 hours
-            params["from_timestamp"] = self._format_timestamp(
-                datetime.now() - timedelta(days=1)
-            )
+            params["from_timestamp"] = datetime.now() - timedelta(days=1)
 
         if query.end_time:
-            params["to_timestamp"] = self._format_timestamp(query.end_time)
+            params["to_timestamp"] = query.end_time
 
-        # Set limit
-        params["limit"] = query.limit
+        # Set limit (max 100 for Langfuse)
+        params["limit"] = min(query.limit, 100)
 
         # Tag filtering
         if query.tags:
@@ -145,7 +155,7 @@ class LangfuseBackend(BaseBackend):
 
         # Query Langfuse for traces
         try:
-            response = self.client.api.trace.list(**params)
+            response = self._langfuse_client.api.trace.list(**params)
             traces_data = response.data or []
         except Exception as e:
             logger.error(f"Error querying Langfuse: {e}")
@@ -231,10 +241,10 @@ class LangfuseBackend(BaseBackend):
 
         try:
             # Fetch trace from Langfuse
-            trace_item = self.client.api.trace.get(trace_id)
+            trace_item = self._langfuse_client.api.trace.get(trace_id)
 
             # Fetch all observations (spans) for this trace
-            observations_response = self.client.api.observations.get_many(trace_id=trace_id)
+            observations_response = self._langfuse_client.api.observations.get_many(trace_id=trace_id)
             observations = observations_response.data or []
 
             # Convert to TraceData with full span details
@@ -256,7 +266,8 @@ class LangfuseBackend(BaseBackend):
 
         try:
             # Query recent traces to get unique names
-            response = self.client.api.trace.list(limit=1000)
+            # Langfuse API limits to 100 per query
+            response = self._langfuse_client.api.trace.list(limit=100)
             traces = response.data or []
 
             # Extract unique trace names
@@ -287,9 +298,10 @@ class LangfuseBackend(BaseBackend):
 
         try:
             # Query traces with this name
-            response = self.client.api.trace.list(
+            # Langfuse API limits to 100 per query
+            response = self._langfuse_client.api.trace.list(
                 name=service_name,
-                limit=1000,
+                limit=100,
             )
             traces = response.data or []
 
@@ -314,18 +326,21 @@ class LangfuseBackend(BaseBackend):
         try:
             # Try to fetch a single trace to verify connectivity
             # Use a very small limit to minimize data transfer
-            response = self.client.api.trace.list(limit=1)
+            response = self._langfuse_client.api.trace.list(limit=1)
 
             return HealthCheckResponse(
-                status="ok",
-                message=f"Connected to {self.url}",
+                status="healthy",
+                backend="langfuse",
+                url=self.url,
             )
 
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return HealthCheckResponse(
-                status="error",
-                message=f"Failed to connect to {self.url}: {str(e)}",
+                status="unhealthy",
+                backend="langfuse",
+                url=self.url,
+                error=str(e),
             )
 
     def _convert_langfuse_trace_to_trace(
@@ -367,11 +382,20 @@ class LangfuseBackend(BaseBackend):
             status = self._determine_trace_status(trace_item, spans)
 
             # Create TraceData
+            # Handle different attribute names in Langfuse SDK versions
+            latency_ms = 0
+            if hasattr(trace_item, 'latency_ms'):
+                latency_ms = trace_item.latency_ms or 0
+            elif hasattr(trace_item, 'latency'):
+                latency_ms = (trace_item.latency or 0) * 1000 if trace_item.latency else 0
+            elif hasattr(trace_item, 'duration'):
+                latency_ms = (trace_item.duration or 0) * 1000 if trace_item.duration else 0
+
             return TraceData(
                 trace_id=trace_item.id,
                 spans=spans,
                 start_time=self._parse_timestamp(trace_item.timestamp),
-                duration_ms=float(trace_item.latency_ms or 0),
+                duration_ms=float(latency_ms),
                 service_name=trace_item.name or "unknown",
                 root_operation=trace_item.session_id or trace_item.name or "unknown",
                 status=status,
@@ -534,11 +558,19 @@ class LangfuseBackend(BaseBackend):
         """
         return dt.isoformat() + "Z"
 
-    def _parse_timestamp(self, timestamp: str | None) -> datetime:
+    async def close(self) -> None:
+        """Close Langfuse client connections.
+
+        Langfuse SDK handles its own connection management, so this is a no-op.
+        """
+        # Langfuse SDK manages its own connections
+        pass
+
+    def _parse_timestamp(self, timestamp: str | datetime | None) -> datetime:
         """Parse timestamp from Langfuse API.
 
         Args:
-            timestamp: ISO format timestamp string
+            timestamp: ISO format timestamp string or datetime object
 
         Returns:
             Datetime object
@@ -546,10 +578,15 @@ class LangfuseBackend(BaseBackend):
         if not timestamp:
             return datetime.now()
 
+        # If already a datetime object, return it
+        if isinstance(timestamp, datetime):
+            return timestamp
+
+        # Otherwise parse from string
         try:
             # Langfuse returns timestamps in ISO format
             # Handle both 'Z' and timezone formats
-            if timestamp.endswith("Z"):
+            if isinstance(timestamp, str) and timestamp.endswith("Z"):
                 timestamp = timestamp[:-1] + "+00:00"
             return datetime.fromisoformat(timestamp)
         except Exception as e:
