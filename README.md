@@ -6,7 +6,7 @@
 
 **Query and analyze LLM traces with AI assistance.** Ask Claude to find expensive API calls, debug errors, compare model performance, or track token usage—all from your IDE.
 
-An MCP (Model Context Protocol) server that connects AI assistants to OpenTelemetry trace backends (Jaeger, Tempo, Traceloop), with specialized support for LLM observability through OpenLLMetry semantic conventions.
+An MCP (Model Context Protocol) server that connects AI assistants to OpenTelemetry trace backends (Jaeger, Tempo, Traceloop, Langfuse), with specialized support for LLM observability through OpenLLMetry semantic conventions.
 
 **See it in action:**
 
@@ -496,11 +496,12 @@ uv pip install -e ".[dev]"
 
 ### Supported Backends
 
-| Backend       | Type        | URL Example                 | Notes                      |
-| ------------- | ----------- | --------------------------- | -------------------------- |
-| **Jaeger**    | Local       | `http://localhost:16686`    | Popular open-source option |
-| **Tempo**     | Local/Cloud | `http://localhost:3200`     | Grafana's trace backend    |
-| **Traceloop** | Cloud       | `https://api.traceloop.com` | Requires API key           |
+| Backend       | Type        | URL Example                      | Notes                      |
+| ------------- | ----------- | -------------------------------- | -------------------------- |
+| **Jaeger**    | Local       | `http://localhost:16686`         | Popular open-source option |
+| **Tempo**     | Local/Cloud | `http://localhost:3200`          | Grafana's trace backend    |
+| **Traceloop** | Cloud       | `https://api.traceloop.com`      | Requires API key           |
+| **Langfuse**  | Cloud       | `https://cloud.langfuse.com`     | Requires public/secret key |
 
 ### Quick Configuration
 
@@ -525,9 +526,11 @@ opentelemetry-mcp --backend traceloop --url https://api.traceloop.com --api-key 
 
 | Variable               | Type    | Default  | Description                                        |
 | ---------------------- | ------- | -------- | -------------------------------------------------- |
-| `BACKEND_TYPE`         | string  | `jaeger` | Backend type: `jaeger`, `tempo`, or `traceloop`    |
+| `BACKEND_TYPE`         | string  | `jaeger` | Backend type: `jaeger`, `tempo`, `traceloop`, or `langfuse` |
 | `BACKEND_URL`          | URL     | -        | Backend API endpoint (required)                    |
 | `BACKEND_API_KEY`      | string  | -        | API key (required for Traceloop)                   |
+| `LANGFUSE_PUBLIC_KEY`  | string  | -        | Langfuse public key (required for Langfuse)        |
+| `LANGFUSE_SECRET_KEY`  | string  | -        | Langfuse secret key (required for Langfuse)        |
 | `BACKEND_TIMEOUT`      | integer | `30`     | Request timeout in seconds                         |
 | `LOG_LEVEL`            | string  | `INFO`   | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `MAX_TRACES_PER_QUERY` | integer | `100`    | Maximum traces to return per query (1-1000)        |
@@ -539,8 +542,12 @@ opentelemetry-mcp --backend traceloop --url https://api.traceloop.com --api-key 
 BACKEND_TYPE=jaeger
 BACKEND_URL=http://localhost:16686
 
-# Optional: API key (mainly for Traceloop)
+# Optional: API key (for Traceloop)
 BACKEND_API_KEY=
+
+# Optional: Langfuse credentials (for Langfuse)
+LANGFUSE_PUBLIC_KEY=pk-lf-your-public-key
+LANGFUSE_SECRET_KEY=sk-lf-your-secret-key
 
 # Optional: Request timeout (default: 30s)
 BACKEND_TIMEOUT=30
@@ -580,6 +587,30 @@ BACKEND_API_KEY=your_api_key_here
 ```
 
 > **Note:** The API key contains project information. The backend uses a project slug of `"default"` and Traceloop resolves the actual project/environment from the API key.
+
+### Langfuse
+
+```bash
+BACKEND_TYPE=langfuse
+BACKEND_URL=https://cloud.langfuse.com
+LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxxxxxxxxxxx
+LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxxxxxxxxxxx
+```
+
+**Getting your Langfuse credentials:**
+
+1. Go to [Langfuse](https://cloud.langfuse.com) and sign in
+2. Navigate to **Project Settings** → **API Keys**
+3. Create or copy your existing API keys
+4. Use the **Public Key** as `LANGFUSE_PUBLIC_KEY`
+5. Use the **Secret Key** as `LANGFUSE_SECRET_KEY`
+
+**Region-specific URLs:**
+
+- **EU Region** (default): `https://cloud.langfuse.com`
+- **US Region**: `https://us.cloud.langfuse.com`
+
+> **Note:** Langfuse uses public/secret key pairs for authentication. The SDK handles all API calls internally, so you don't need to worry about trace/observation endpoints.
 
 </details>
 
