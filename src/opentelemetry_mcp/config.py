@@ -16,11 +16,13 @@ load_dotenv()
 class BackendConfig(BaseModel):
     """Configuration for OpenTelemetry trace backend."""
 
-    type: Literal["jaeger", "tempo", "traceloop"]
+    type: Literal["jaeger", "tempo", "traceloop", "langfuse"]
     url: HttpUrl
     api_key: str | None = Field(default=None, exclude=True)
     timeout: float = Field(default=30.0, gt=0, le=300)
     environments: list[str] = Field(default_factory=lambda: ["prd"])
+    public_key: str | None = Field(default=None, exclude=True)
+    secret_key: str | None = Field(default=None, exclude=True)
 
     @field_validator("url")
     @classmethod
@@ -35,9 +37,9 @@ class BackendConfig(BaseModel):
         """Load configuration from environment variables."""
         backend_type = os.getenv("BACKEND_TYPE", "jaeger")
         backend_url = os.getenv("BACKEND_URL", "http://localhost:16686")
-        if backend_type not in ["jaeger", "tempo", "traceloop"]:
+        if backend_type not in ["jaeger", "tempo", "traceloop", "langfuse"]:
             raise ValueError(
-                f"Invalid BACKEND_TYPE: {backend_type}. Must be one of: jaeger, tempo, traceloop"
+                f"Invalid BACKEND_TYPE: {backend_type}. Must be one of: jaeger, tempo, traceloop, langfuse"
             )
 
         # Parse environments from comma-separated string
@@ -52,12 +54,25 @@ class BackendConfig(BaseModel):
             logger.warning(f"Invalid BACKEND_TIMEOUT value '{timeout_str}': {e}. Using default: 30")
             timeout = 30.0
 
+        # Load Langfuse-specific credentials
+        public_key = None
+        secret_key = None
+        api_key = os.getenv("BACKEND_API_KEY")
+
+        if backend_type == "langfuse":
+            public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+            secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+            # For Langfuse, use secret_key as api_key for BaseBackend
+            api_key = secret_key
+
         return cls(
             type=backend_type,  # type: ignore
             url=backend_url,  # type: ignore
-            api_key=os.getenv("BACKEND_API_KEY"),
+            api_key=api_key,
             timeout=timeout,
             environments=environments,
+            public_key=public_key,
+            secret_key=secret_key,
         )
 
 
@@ -102,10 +117,10 @@ class ServerConfig(BaseModel):
     ) -> None:
         """Apply CLI argument overrides to configuration."""
         if backend_type:
-            if backend_type not in ["jaeger", "tempo", "traceloop"]:
+            if backend_type not in ["jaeger", "tempo", "traceloop", "langfuse"]:
                 raise ValueError(
                     f"Invalid backend type: {backend_type}. "
-                    "Must be one of: jaeger, tempo, traceloop"
+                    "Must be one of: jaeger, tempo, traceloop, langfuse"
                 )
             self.backend.type = backend_type  # type: ignore
 
@@ -114,6 +129,9 @@ class ServerConfig(BaseModel):
 
         if api_key:
             self.backend.api_key = api_key
+            # For Langfuse, also set as secret_key
+            if self.backend.type == "langfuse":
+                self.backend.secret_key = api_key
 
         if environments:
             self.backend.environments = [

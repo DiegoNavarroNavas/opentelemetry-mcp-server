@@ -21,7 +21,8 @@ keywords = [
     "telemetry",
     "jaeger",
     "tempo",
-    "traceloop"
+    "traceloop",
+    "langfuse"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -45,6 +46,7 @@ dependencies = [
     "starlette~=0.52.0",
     "opentelemetry-semantic-conventions-ai>=0.4.13",
     "opentelemetry-semantic-conventions>=0.60b0",
+    "langfuse~=2.60.0",
 ]
 
 [project.urls]
