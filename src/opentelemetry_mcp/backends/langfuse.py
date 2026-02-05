@@ -434,8 +434,14 @@ class LangfuseBackend(BaseBackend):
         }
 
         # Add metadata if available
+        # Langfuse stores OpenTelemetry metadata in nested structure
         if trace_item.metadata:
-            raw_attrs.update(trace_item.metadata)
+            # Flatten nested structure for attributes (consistent with observation conversion)
+            if isinstance(trace_item.metadata, dict):
+                if "attributes" in trace_item.metadata and isinstance(trace_item.metadata["attributes"], dict):
+                    raw_attrs.update(trace_item.metadata["attributes"])
+                if "resourceAttributes" in trace_item.metadata and isinstance(trace_item.metadata["resourceAttributes"], dict):
+                    raw_attrs.update(trace_item.metadata["resourceAttributes"])
 
         # Add tags if available
         if trace_item.tags:
@@ -472,9 +478,17 @@ class LangfuseBackend(BaseBackend):
             SpanData or None if parsing fails
         """
         try:
+            # Extract service name from nested resourceAttributes
+            # Langfuse stores OpenTelemetry resource attributes in metadata.resourceAttributes
+            service_name = ""
+            if obs.metadata:
+                resource_attrs = obs.metadata.get("resourceAttributes", {})
+                if isinstance(resource_attrs, dict):
+                    service_name = resource_attrs.get("service.name", "")
+
             # Extract metadata for attributes
             raw_attrs = {
-                Service.NAME: obs.metadata.get("service.name") if obs.metadata else "",
+                Service.NAME: service_name,
                 "langfuse.observation.id": obs.id,
                 "langfuse.observation.type": obs.type,
                 "langfuse.observation.name": obs.name,
@@ -482,7 +496,11 @@ class LangfuseBackend(BaseBackend):
 
             # Add metadata if available
             if obs.metadata:
-                raw_attrs.update(obs.metadata)
+                # Flatten nested structure for attributes
+                if "attributes" in obs.metadata and isinstance(obs.metadata["attributes"], dict):
+                    raw_attrs.update(obs.metadata["attributes"])
+                if "resourceAttributes" in obs.metadata and isinstance(obs.metadata["resourceAttributes"], dict):
+                    raw_attrs.update(obs.metadata["resourceAttributes"])
 
             # Extract LLM-specific attributes if this is an LLM call
             if obs.type == "generation" and obs.usage_details:
